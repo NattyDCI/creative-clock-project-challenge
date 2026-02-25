@@ -1,282 +1,249 @@
-// p5.js + Matter.js clock balls with RGB rainbow + alpha (hours/minutes/seconds clearly different)
+// vertex shader
+let vertexShader = `
+precision highp float;
 
-const EIGHTH_PI = Math.PI * 0.125;
-const SIXTEENTH_PI = EIGHTH_PI * 0.5;
-const { Engine, World, Bodies, Body, Vector } = Matter;
+attribute vec3 aPosition;
+attribute vec2 aTexCoord;
 
-let engine = Engine.create();
-let { world } = engine;
-Engine.run(engine);
+uniform mat4 uModelViewMatrix;
+uniform mat4 uProjectionMatrix;
 
-let canvas, ctx;
+varying vec2 vTexCoord;
 
-let time = null;
-let triggerToggle = 1;
-let totalTime = 5 * 1000;
-let hourTime = totalTime / 12;
-let minuteTime = totalTime / 60;
-let secondTime = 1000;
-let scaleFactor = 1.3;
-let textSizes = { hour: [32, 18], minute: [20, 14], second: [16, 10] };
+void main() {
+  vec4 viewModelPosition =
+    uModelViewMatrix *
+    vec4(aPosition, 1.0);
 
-let triggeredBlocks = [];
-let _hourOpts = { func: createHourBlock, to: hourTime };
-let _minuteOpts = { func: createMinuteBlock, to: minuteTime };
-let _secondOpts = { func: createSecondBlock, to: secondTime, side: "second" };
+  gl_Position =
+    uProjectionMatrix *
+    viewModelPosition;
 
-// ---------- Rainbow helper (returns RGB in 0..100) ----------
-function rainbowRGB(t) {
-  // keep t in [0, 1)
-  t = ((t % 1) + 1) % 1;
-
-  // three sine waves, phase-shifted for rainbow
-  const r = (sin(TWO_PI * (t + 0.0)) * 0.5 + 0.5) * 100;
-  const g = (sin(TWO_PI * (t + 1 / 3)) * 0.5 + 0.5) * 100;
-  const b = (sin(TWO_PI * (t + 2 / 3)) * 0.5 + 0.5) * 100;
-
-  return [r, g, b];
+  vTexCoord = aTexCoord;
 }
+`;
+
+// fragment shader
+let fragmentShader = `
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+#define PI 3.14159265358979323846
+
+uniform float time;
+uniform float shade;
+
+varying vec2 vTexCoord;
+
+vec2 rotate2D (vec2 _st, float _angle) {
+  _st -= 0.5;
+  _st = mat2(cos(_angle), -sin(_angle),
+             sin(_angle),  cos(_angle)) * _st;
+  _st += 0.5;
+  return _st;
+}
+
+vec2 tile (vec2 _st, float _zoom) {
+  _st *= _zoom;
+  return fract(_st);
+}
+
+float concentricCircles(in vec2 st, in vec2 radius, in float res, in float scale) {
+  float dist = distance(st, radius);
+  float pct = floor(dist * res) / scale;
+  return pct;
+}
+
+void main (void) {
+  vec2 st = vTexCoord;
+
+  float dist = distance(st, vec2(sin(time/10.0), cos(time/10.0)));
+  st = tile(st, 10.0);
+  st = rotate2D(st, dist * PI * 2.0);
+
+  vec3 col = vec3(
+    concentricCircles(st, vec2(0.0,0.0), 5.0, 5.0),
+    concentricCircles(st, vec2(0.0,0.0), 10.0, 10.0),
+    concentricCircles(st, vec2(0.0,0.0), 20.0, 10.0)
+  );
+
+  col *= shade;
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+
+let theShader;
+
+// Minute ball position
+let minuteAngle = 0;
 
 function setup() {
-  canvas = createCanvas(windowWidth, windowHeight);
-  ctx = canvas.drawingContext;
-  textFont("Orbitron");
+  createCanvas(710, 400, WEBGL);
+  noStroke();
+  theShader = createShader(vertexShader, fragmentShader);
 
-  textAlign(CENTER, CENTER);
-
-  // IMPORTANT: enable alpha channel (RGBA), all ranges 0..100
-  colorMode(RGB, 100, 100, 100, 100);
-
-  // --- Your original walls ---
-  let wallOptions = { collisionFilter: { category: 0x001 }, isStatic: true };
-  let wallsHeight = 1000;
-  let wallsY = -wallsHeight * 0.5 + 100;
-  let wallOpts = [wallsY, 25, wallsHeight, wallOptions];
-  let walls = [
-    Bodies.rectangle(-300, ...wallOpts),
-    Bodies.rectangle(-100, ...wallOpts),
-    Bodies.rectangle(100, ...wallOpts),
-    Bodies.rectangle(300, ...wallOpts),
-  ];
-
-  // --- Your original ground wedges (fixed angle: 10 should be radians; using 10 degrees -> radians) ---
-  let groundOptions = { collisionFilter: { category: 0x002 }, isStatic: true };
-  let groundArgs = [150, 140, 25];
-
-  // p5 QUARTER_PI is radians; if you want 10 degrees, convert:
-  let tenDeg = radians(10);
-
-  let groundOpts1 = groundArgs.concat([Object.assign({ angle: tenDeg }, groundOptions)]);
-  let groundOpts2 = groundArgs.concat([Object.assign({ angle: -QUARTER_PI }, groundOptions)]);
-  let ground = [
-    Bodies.rectangle(-247.5, ...groundOpts1),
-    Bodies.rectangle(-152.5, ...groundOpts2),
-    Bodies.rectangle(-47.5, ...groundOpts1),
-    Bodies.rectangle(52.5, ...groundOpts2),
-    Bodies.rectangle(247.5, ...groundOpts2),
-    Bodies.rectangle(152.5, ...groundOpts1),
-  ];
-
-  World.add(world, walls.concat(ground));
-}
-
-function mouseDragged() {
-  world.bodies.forEach((body) => {
-    if (body.isStatic || body.velocity.y < -0.5) return;
-
-    let pos = Vector.clone(body.position);
-    pos.y += 2;
-
-    Body.applyForce(body, pos, {
-      x: random(-1, 1) * 0.001,
-      y: -0.005,
-    });
-  });
+  colorMode(HSB, 360, 100, 100, 100); // <-- ADD
 }
 
 function draw() {
-  background(0);
-  translate(width * 0.5, height * 0.5);
 
-  let currentTime = [hour() % 12 || 12, minute(), second()];
-  if (!time || time.slice(0, 2).some((n, i) => n !== currentTime[i])) {
-    time = currentTime;
-    trigger();
+  let m = minute();
+  let s = second();
+
+  
+  
+  background(255);
+  shader(theShader);
+
+  // use seconds as time input
+  theShader.setUniform("time", s);
+
+  
+    // ... your minute ball ...
+    // ... your seconds ball ...
+
+  // uniforms (keep your second()/minute() approach)
+  theShader.setUniform("time", s);
+  theShader.setUniform("shade", 1.0);
+
+  // --- Flower that grows ---
+drawFlowerClock(hour() % 12 , width - 90, 95, 90);
+drawHourLegend(m, -200, -100, 100); // top-left legend
+
+  
+
+  // angle based on minute
+  minuteAngle = map(m, 0, 59, 0, TWO_PI);
+
+  // subtle outward movement based on seconds
+  let radius = 60 + s * 0.5;
+
+  let x = -150 + cos(minuteAngle) * radius;
+  let y = sin(minuteAngle) * radius;
+
+  // subtle pulse based on seconds (stepped)
+  let minuteScale = 1.0 + s * 0.003;
+
+  push();
+  translate(x, y, 0);
+  rotateY(s * 2);   // gentle stepped rotation
+  theShader.setUniform("shade", 0.7 + s * 0.005);
+  scale(minuteScale);
+  sphere(125);
+  pop();
+
+  // -------------------------
+  // 🔵 SECONDS BALL
+  // -------------------------
+
+  // shade changes once per second
+  let secShade = map(s, 0, 59, 0.3, 1.0);
+
+  push();
+  translate(170, 0, 0);
+  theShader.setUniform("shade", secShade);
+  sphere(80);
+  pop();
+}
+
+
+function hourColor(h) {
+  // 24 distinct-ish colors (one per hour)
+  return color((h * 15) % 360, 80, 95, 100);
+}
+
+function drawFlowerClock(h, x, y, size) {
+  const c = hourColor(h);
+
+  // growth per hour:
+  // petals: 5..16 across 24 hours
+  const petals = floor(map(h, 0, 23, 2, 13));
+  // bloom factor: 0.55..1.0 across the day
+  const bloom = map(h, 0, 23, 0.5, 6.0);
+
+  push();
+  // draw in screen space (top-left origin) while in WEBGL
+  resetMatrix();
+  translate(-width / 2, -height / 2);
+  translate(x, y);
+
+  // stem
+  stroke(120, 60, 55, 100);
+  strokeWeight(size * 0.08);
+  line(0, size * 0.15, 0, size * 3);
+
+  // leaf
+  noStroke();
+  fill(120, 60, 60, 85);
+  ellipse(-size * 0.18, size * 0.45, size * 0.22, size * 0.12);
+
+  // petals (bloom grows by hour)
+  noStroke();
+  fill(c);
+
+  const petalDist = size * 0.23 * bloom;
+  const petalW = size * 0.26 * bloom;
+  const petalH = size * 0.15 * bloom;
+
+  for (let i = 0; i < petals; i++) {
+    const ang = (TWO_PI * i) / petals;
+    const px = cos(ang) * petalDist;
+    const py = sin(ang) * petalDist;
+    push();
+    translate(px, py);
+    rotate(ang);
+    ellipse(0, 0, petalW, petalH);
+    pop();
   }
 
-  // NOTE: this slice is brittle; keeping yours, but if shapes disappear use world.bodies instead
-  let drawableBodies = world.bodies.slice(10);
+  // center
+  fill(45, 90, 95, 100);
+  ellipse(0, 0, size * 0.22 * bloom, size * 0.22 * bloom);
 
-  drawableBodies.forEach((body) => {
-    let { vertices, position: pos, label } = body;
+  // hour label
+  fill(0, 0, 10, 100);
+  textAlign(CENTER, CENTER);
+  textSize(size * 0.18);
+  text(nf(h, 2) + ":00", 0, -size * 0.55);
 
-    if (typeof label !== "string") {
-      let { num, side, largest, style } = label;
-
-      if ((abs(pos.x) > width || pos.y > height) && !body.isStatic) {
-        World.remove(world, body);
-        return;
-      }
-
-      fill(style); // style is [r,g,b,a] now
-      largest ? stroke(255) : noStroke();
-    } else {
-      fill(32);
-      stroke(255);
-      point(pos.x, pos.y);
-    }
-
-    beginShape();
-    vertices.forEach((v) => vertex(v.x, v.y));
-    endShape(CLOSE);
-
-    if (typeof label !== "string") {
-      let { num, side, largest } = label;
-      fill(100, 100, 100, 100); // white in RGB(100) with full alpha
-      noStroke();
-      textSize(textSizes[side][1 - largest]);
-      text(num, pos.x, pos.y);
-    }
-  });
+  pop();
 }
 
-function createCircle({ x, y, r, options = {} }) {
-  options.restitution = 0.6;
-  let body = Bodies.circle(x, y, r, options);
-  World.add(world, body);
-  return body;
-}
+function drawHourLegend(m, x, w, y) {
 
-function createFilteredCircle({ x = 0, y = -height * 0.5 - 60, r = 40, label = {} } = {}) {
-  let category = triggerToggle ? 0x002 : 0x004;
-  let mask = category | 0x001;
-  let options = { collisionFilter: { category, mask } };
+let balls = 60;
 
-  let block = createCircle({ x, y, r, options });
-  Body.applyForce(block, block.position, { x: random(-1, 1) * 0.002, y: 0.005 });
-  block.label = label;
-  return block;
-}
+  push();
+  resetMatrix();
+  
 
-function createHourBlock() {
-  let x = random(-125, -275);
-  let y = 30;
-  let label = { side: "hour", timeIndex: 0 };
-  return createFilteredCircle({ x, y, r: y, label });
-}
+  const pad = 30;
+  const cols = 10;          // 12 per row
+  const rows = 6;
+  const cellW = (w - pad * 2) / cols;
 
-function createMinuteBlock() {
-  let x = random(-75, 75);
-  let y = 20;
-  let label = { side: "minute", timeIndex: 1 };
-  return createFilteredCircle({ x, y, r: y, label });
-}
+  textAlign(CENTER, TOP);
+  textSize(10);
+  fill(0, 0, 20, 100);
+  noStroke();
+  text("Hour → flower color", x + w / 2, y - 14);
 
-function createSecondBlock() {
-  let x = random(125, 275);
-  let y = 10;
-  let label = { side: "second", timeIndex: 2 };
-  return createFilteredCircle({ x, y, r: y, label });
-}
+  for (let h = 0; h < 60; h++) {
+    const col = h % cols;
+    const row = floor(h / cols);
 
-function toggle() {
-  let cat = triggerToggle ? 0x002 : 0x004;
-  world.bodies.slice(3, 10).forEach((body) => (body.collisionFilter.category = cat));
-}
+    const cx = x + pad + col * cellW + cellW / 2;
+    const cy = y + row * 22;
 
-function trigger() {
-  triggerToggle ^= 1;
-  toggle();
+    fill(hourColor(h));
+    noStroke();
+    ellipse(cx, cy, 12, 12);
 
-  triggeredBlocks.forEach((n) => clearTimeout(n));
-  triggeredBlocks = [];
-
-  function triggerBlock({ func, i }) {
-    return () => {
-      // 1) spawn
-      let block = func();
-
-      // 2) identify group + timeIndex
-      let { side, timeIndex } = block.label;
-
-      // 3) number + "current" logic
-      let num = i + 1;
-
-      // your old rule: only hours/minutes had "largest"
-      let largest = timeIndex !== 2 ? num === time[timeIndex] : false;
-
-      // we ALSO want seconds to have a "current" highlight:
-      let isCurrent = side === "second" ? num === time[2] : largest;
-
-      if (largest) Body.scale(block, scaleFactor, scaleFactor);
-
-      // 4) t = normalized position 0..1
-      // hours/minutes: 1..timeValue; seconds: 1..60
-      let denom = timeIndex !== 2 ? time[timeIndex] : 60;
-      let t = denom > 0 ? num / denom : 0;
-
-      // 5) GROUP DIFFERENTIATION:
-      // Each group uses a different slice ("span") and starting point ("base") of the rainbow,
-      // and different opacity ("alpha") when NOT current.
-      const groupCfg =
-        side === "hour"
-          ? { base: 0.05, span: 0.25, alpha: 85 } // hours: tight rainbow slice, more solid
-          : side === "minute"
-          ? { base: 0.40, span: 0.35, alpha: 35 } // minutes: lighter / more transparent
-          : { base: 0.75, span: 1.0, alpha: 70 }; // seconds: full rainbow, medium opacity
-
-      // map t into this group's rainbow range
-      let rainbowT = groupCfg.base + t * groupCfg.span;
-
-      // RGB rainbow
-      let rgb = rainbowRGB(rainbowT);
-
-      // alpha: current = 100, others = groupCfg.alpha
-      let a = isCurrent ? 100 : groupCfg.alpha;
-
-      // optional: brighten the current ball color a bit (not the text)
-      if (isCurrent) {
-        rgb = [
-          min(100, rgb[0] + 15),
-          min(100, rgb[1] + 15),
-          min(100, rgb[2] + 15),
-        ];
-      }
-
-      let style = [rgb[0], rgb[1], rgb[2], a];
-
-      // store label for drawing
-      block.label = { num, side, largest, t, style };
-    };
+    fill(0, 0, 25, 100);
+    text(nf(h, 2), cx, cy + 8);
   }
 
-  // schedule spawns (keeps your original timing feel)
-  for (let i = 0; i < 60; i++) {
-    let tasks = [];
-    if (i < time[0]) tasks.push({ func: createHourBlock, i });
-    if (i < time[1]) tasks.push({ func: createMinuteBlock, i });
-    tasks.push({ func: createSecondBlock, i });
-
-    tasks.forEach((task) => {
-      let isSecond = task.func === createSecondBlock;
-
-      // seconds: fast “catch up” for past seconds
-      let secondTO = isSecond && (i < time[2] ? 5 * i : secondTime * (i - time[2]));
-
-      // hours/minutes use their own pacing
-      let per =
-        task.func === createHourBlock ? hourTime :
-        task.func === createMinuteBlock ? minuteTime :
-        secondTime;
-
-      let timeoutTime = isSecond ? secondTO : per * i;
-
-      let timeout = setTimeout(triggerBlock(task), timeoutTime);
-      triggeredBlocks.push(timeout);
-    });
-  }
-}
-
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
+  pop();
 }
