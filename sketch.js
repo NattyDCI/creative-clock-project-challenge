@@ -1,116 +1,136 @@
 function setup() {
   createCanvas(500, 500);
   angleMode(DEGREES);
-  colorMode(RGB);
-  textFont("Orbitron")
-  
+  colorMode(RGB, 255);
+  textFont("Orbitron");
 }
 
 function draw() {
-  background(200)
-  
-  const now = new Date();
-  const hr = now.getHours();
-  const mn = now.getMinutes();
-  const sc = now.getSeconds();
+  // --- Bauhaus-inspired RGB palette (primary + neutral) ---
+  // Bauhaus vibe: bold primaries (red/blue/yellow) + black/white/gray
+  const bgCol = color(245, 242, 232); // warm off-white
+  const secCol = color(220, 40, 40); // red
+  const baseCol = color(250, 250, 245); // near-white
+  const minutesgoneCol = color(35, 85, 200); // blue
+  const secColBall = color(245, 200, 35); // yellow
+
+  background(bgCol);
+
+  //const now = new Date();
+  const hr = hour();
+  const mn = minute();
+  const sc = second();
 
   // calling minute(), seconds() separately was creating a jump and mismatch in the frames
 
+  // -- SECONDS LOADING PIE --
+  push();
+  let tsec = map(sc, 0, 59, 0, 360);
 
-  push()
-  let pointHr = map( sc , 0, 59, 0, 360 )
-  stroke(4);
-  fill("black");
-  arc(250, 250, 400, 400, -90, pointHr - 90, PIE);
+  stroke(0);
+  strokeWeight(4);
+  fill(secCol);
+  arc(250, 250, 400, 400, -90, tsec - 90, PIE);
   pop();
 
+  //--BACKGROUND MINUTES LEFT --white pie
 
-  
   push();
-  stroke(255);
-  fill("pink");
+  stroke(0); // Crisp black outline
+  strokeWeight(2);
+  fill(baseCol); // Bauhaus neutral
   ellipse(250, 250, 300, 300);
   pop();
-  
-  
+
   let end = map(mn, 0, 59, 0, 360);
-  
+  // --BACKGROUND MINUTES GONE -- blue pie
   push();
   noStroke();
-  fill("gray")
-  arc(250, 250, 300, 300, -90, end - 90, PIE); //arc( x, y, x, y, start, end)
-  
+  fill(minutesgoneCol); // Bauhaus blue
+  arc(250, 250, 300, 300, -90, end - 90, PIE);
   pop();
-  
-  
-  //I want a circle that rotates along and axis... and follows a trajectory using seconds to map the angle
+
+  // -- SECONDS CIRCLE ELEMENT --
   push();
   let angleSec = map(sc, 0, 59, 0, 360);
   translate(250, 250);
   rotate(angleSec);
-  fill(200);
-  circle( 0, -100, 50) // circle( x, y, w)
+
+  // different blend modes: MULTIPLY / SCREEN / DIFFERENCE
+  blendMode(DIFFERENCE);
+  noStroke();
+  fill(secColBall); // Bauhaus yellow with difference becomes blue and over blue becomes pink
+  circle(0, -100, 50);
+
+  blendMode(BLEND);
   pop();
-  
-  //I want a circle that rotates along and axis... and follows a trajectorie based on the angle that is mapped by the hour 
-  
-  let hr12 = hr % 12; // 0...11 
-  let hourSmooth = hr12 + mn / 60 + sc / 3600; //smooth 0...12
-  let angleHr = map(hourSmooth, 0, 12, 0, 360);
-  //the color of the hour pointer will change depending on the time of day (see legend)
+
+  // -- HOUR POINTER LOGIC --
+  // by adding this variable we make sure that the pointer shows a fluent progression 
+  let fluidHrPointer = (hr % 12) + mn / 60;
+  let angleHr = map(fluidHrPointer, 0, 12, 0, 360);
+
   let fillColor = colorModeDay(hr);
+ // we translate the rectangle pointer to the middle of the canvas
   push();
-  translate(250, 250)
-  fill(fillColor); 
-  noStroke();
-  rectMode(CENTER);
-  noStroke();
+  translate(250, 250);
+  rotate(angleHr);
 
-  
-  
-  // position on rim (radius ≈ 150)
-  rect(0, -170, 20, 60);
-  rotate(angleHr - 90);
+  fill(fillColor);
+  stroke(0);
+  strokeWeight(4);
+  rectMode(CENTER); // we make sure that the rectangle rotates on its middle axis
+
+  let r = 170; // radius where the marker sits
+  rect(0, -r, 20, 60); // vertical block at the rim
   pop();
-  push()
-  //this is supposed to show you how to read the clock
+
+  // legend
   let timeofDay = ["night", "morning", "day", "evening"];
-  let fillColorLegend = ["darkred", "lightblue", "lightgreen", "purple"]
 
+  // Bauhaus colors in RGB
+  // night: deep red, morning: blue, day: yellow-ish, evening: charcoal
 
-  for (let i = 0; i <= 3; i++ ) {
-    fill("black")
+  let fillColorLegend = [
+    color(140, 0, 0),
+    color(35, 85, 200),
+    color(245, 200, 35),
+    color(30, 30, 30),
+  ];
+
+  for (let i = 0; i <= 3; i++) {
+    fill(0);
     text(timeofDay[i], 5, 20 + i * 24, 90, 90);
-   
-    fill(fillColorLegend[i])
-    circle(70, 24 + i * 24, 20, 20);
-    
-  }   
-      text("any pie left?", 150, 20, 170, 90 ) //text("text", x, y, w, h)
-      fill("pink");
-      ellipse(120, 35, 40, 40);
-      fill("grey")
-      arc(120, 35, 40, 40, -90, end - 90, PIE ); 
 
-  pop()
-  
+    fill(fillColorLegend[i]);
+    circle(70, 24 + i * 24, 20);
+  }
+
+  fill(0);
+  text("fraction of an hour left", 150, 20, 170, 90);
+
+  fill(baseCol);
+  ellipse(120, 35, 40, 40);
+
+  fill(minutesgoneCol);
+  arc(120, 35, 40, 40, -90, end - 90, PIE);
+  pop();
 }
 
-// 🌙 Night → 0–4
-
-// 🌅 Morning → 5–11
-
-// ☀️ Day → 12–17
-
-// 🌆 Evening → 18–23
+// Night → 0–4
+// Morning → 5–11
+// Day → 12–17
+// Evening → 18–23
 
 function colorModeDay(hour) {
-  
-   if(hour < 5) {
-    return "darkred"//night time (0-4)
-   } else if (hour < 12){
-    return "lightblue" //morning (5-11)
-   } else if( hour < 18){
-    return "lightgreen" // day time (18-23) 
-   } else { return purple } //evening (18-23)
+  // return  p5 colors (RGB), not undefined variables like purple
+  if (hour < 5) {
+    return color(140, 0, 0); // deep red (night)
+  } else if (hour < 12) {
+    return color(35, 85, 200); // blue (morning)
+  } else if (hour < 18) {
+    return color(245, 200, 35); // yellow (day)
+  } else {
+    return color(30, 30, 30); // near-black (evening)
+  }
 }
